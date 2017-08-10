@@ -1,59 +1,71 @@
 #include <Arduino.h>
-
 #include <SPI.h>
+#include <avr/pgmspace.h>
+#include <Wire.h>
+#include <SoftwareSerial.h>
+#include "mcp_can.h"
+#include "mcp_can_dfs.h"
 
-#include <mcp_can.h>
-#include <mcp_can_dfs.h>
+const int SPI_CS_PIN = 10;
 
-
-
-INT32U canId = 0x000;
+MCP_CAN CAN(SPI_CS_PIN);
+unsigned char flagRecv = 0;
 unsigned char len = 0;
 unsigned char buf[8];
 char str[20];
 
-const int SPI_CS_PIN = 10;
-
-MCP_CAN CAN(SPI_CS_PIN); 
-
-void printHex(int num, int precision) {
-     char tmp[16];
-     char format[128];
-
-     sprintf(format, "0x%%.%dX", precision);
-
-     sprintf(tmp, format, num);
-     Serial.print(tmp);
+void attachCAN()
+{
+  #if defined(__AVR_ATmega32U4__) // Arduino Pro Micro
+    pinMode(7, INPUT);
+    attachInterrupt(digitalPinToInterrupt(7), MCP2515_ISR, FALLING); // start interrupt
+  #else // Other Arduinos (Nano in my case)
+    pinMode(2, INPUT);
+    attachInterrupt(digitalPinToInterrupt(2), MCP2515_ISR, FALLING); // start interrupt
+  #endif
 }
 
 void setup()
-{    
-Serial.begin(115200);
+{
+  delay(3000);
+    Serial.begin(115200);
 START_INIT:
-if(CAN_OK == CAN.begin(CAN_125KBPS, MCP_8MHz))
-    {
-        Serial.println("CAN BUS Shield init ok!");
-    }
-    else
-    {
-        Serial.println("CAN BUS Shield init fail");
-        Serial.println("Init CAN BUS Shield again");
-        delay(100);
-        goto START_INIT;
-    }
+  if(CAN_OK == CAN.begin(MCP_STDEXT, CAN_125KBPS, MCP_8MHZ)) {
+    Serial.println(F("CAN ok!"));
+  } else {
+    Serial.println(F("CAN fail"));
+    delay(100);
+    goto START_INIT;
+  }
+
+  attachCAN();
+
+  CAN.setMode(MCP_NORMAL);
+
 }
+
+void MCP2515_ISR()
+{
+    flagRecv = 1;
+}
+
 void loop()
 {
-    if(CAN_MSGAVAIL == CAN.checkReceive())
+    if(flagRecv)
     {
-        CAN.readMsgBuf(&len, buf);
-        canId = CAN.getCanId();
-        Serial.print(millis());Serial.print(": ");
-        printHex(canId, 3);Serial.print(" ");
-        for(int i = 0; i<len; i++)
-  {
-    printHex(buf[i], 2);Serial.print(" ");
-  }
-  Serial.println();
-   }
+        flagRecv = 0;
+        while (CAN_MSGAVAIL == CAN.checkReceive())
+        {
+            // read data,  len: data length, buf: data buf
+            CAN.readMsgBuf(&len, buf);
+            Serial.print(CAN.getCanId(),HEX);
+            Serial.print("\t");
+            // print the data
+            for(int i = 0; i<len; i++)
+            {
+                Serial.print(buf[i],HEX);Serial.print("\t");
+            }
+            Serial.println();
+        }
+    }
 }
